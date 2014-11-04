@@ -192,16 +192,16 @@ void setup(){
   setupPhotometer();
   Serial.println(F("OK"));
   
+  Serial.print(F("Conductivity Probe Setup..."));
+  condProbe.begin(&Serial3);
+  Serial.println(F("OK"));
+  
   Serial.print(F("BTLE Hardware Setup..."));
   btle = setupBTLE("pH-1");
   Serial.println(F("OK"));
   
   Serial.print(F("BTLE Handlers Setup..."));
   setupBTLEHandlers();
-  Serial.println(F("OK"));
-  
-  Serial.print(F("Conductivity Probe Setup..."));
-  condProbe.begin(&Serial3);
   Serial.println(F("OK"));
 }
 
