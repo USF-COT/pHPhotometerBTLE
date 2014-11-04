@@ -9,7 +9,7 @@
 #define ADAFRUITBLE_RDY 3
 #define ADAFRUITBLE_RST 36
 
-void setupBTLE();
+Adafruit_BLE_UART* setupBTLE(char* broadcastName);
 
 #define RXBUFFERMAX 256
 static volatile uint8_t rxBuffer[RXBUFFERMAX];

@@ -2,11 +2,17 @@
 
 #include <SPI.h>
 #include "Adafruit_BLE_UART.h"
-#include "BTLEFunctions.h"
+#include "BTLE.h"
+#include "ASConductivity.h"
+
+#include "OneWire.h"
+#include "OneWireTemperature.h"
 
 #define BLUELEDPIN 9
 #define GREENLEDPIN 8
 #define DETECTORPIN A1
+
+#define DEBUG
 
 // Photometer Setup
 void blueLEDControl(int level){
@@ -26,7 +32,19 @@ void setupPhotometer(){
   pinMode(DETECTORPIN, INPUT);
 }
 
-// Setup BTLE Handlers Code
+// Conductivity Class Setup
+OneWireTemperature tempProbe(A0);
+float tempReadFun(){
+  float temperature = tempProbe.getTemperature();
+  if(temperature < 0){
+    Serial.print(F("Error retrieving temperature.  Received: ")); Serial.println(temperature);
+    return 25;
+  }
+  return temperature;
+}
+ASConductivity condProbe(tempReadFun);
+
+//BTLE Handlers and Utilities
 unsigned int floatToTrimmedString(char* dest, float value){
   char floatBuffer[16];
   unsigned int floatLength, offset;
@@ -46,6 +64,21 @@ unsigned int floatToTrimmedString(char* dest, float value){
   return floatLength;
 }
 
+// HACK: Adafruit lib chokes on strings over 20 chars
+//       must send chunks of 20 chars at a time.
+void sendBTLEString(char* sendBuffer, unsigned int length, Adafruit_BLE_UART* uart){
+  unsigned int bytesRemaining;
+  
+  for(unsigned int i = 0; i < length; i+=20){
+    bytesRemaining = min(length - i, 20);
+    uart->write((uint8_t*)sendBuffer + i, bytesRemaining);
+  }
+  
+  #ifdef DEBUG
+  Serial.print("BTLE Sent: "); Serial.print(sendBuffer);
+  #endif
+}
+
 void sendBlank(volatile uint8_t* buffer, volatile uint8_t len, Adafruit_BLE_UART* uart){
   unsigned int length = 0;
   unsigned int bytesRemaining;
@@ -53,27 +86,91 @@ void sendBlank(volatile uint8_t* buffer, volatile uint8_t len, Adafruit_BLE_UART
   char sendBuffer[128];
   sendBuffer[length++] = 'C';
   
-  float blank[5] = { 20, 30, 6, 138, 139 };
-  for(unsigned int i = 0; i < 5; ++i){
-    sendBuffer[length++] = ',';
-    blank[i] += random(-300, 300)/(float)100;
-    length += floatToTrimmedString(sendBuffer + length, blank[i]);
-  }
+  // Get blank
+  photometer.takeBlank();
+  PHOTOREADING blank;
+  photometer.getBlank(&blank);
+  
+  // Get conductivity
+  CONDREADING condReading;
+  condProbe.getReading(&condReading);
+  
+  sendBuffer[length++] = ',';
+  length += floatToTrimmedString(sendBuffer + length, condReading.conductivity);
+  sendBuffer[length++] = ',';
+  length += floatToTrimmedString(sendBuffer + length, condReading.temperature);
+  sendBuffer[length++] = ',';
+  length += floatToTrimmedString(sendBuffer + length, condReading.salinity);
+  sendBuffer[length++] = ',';
+  length += floatToTrimmedString(sendBuffer + length, blank.green);
+  sendBuffer[length++] = ',';
+  length += floatToTrimmedString(sendBuffer + length, blank.blue);
   
   sendBuffer[length++] = '\r';
   sendBuffer[length++] = '\n';
   
-  for(unsigned int i = 0; i < length; i+=20){
-    bytesRemaining = min(length - i, 20);
-    uart->write((uint8_t*)sendBuffer + i, bytesRemaining);
-  }
+  sendBTLEString(sendBuffer, length, uart);
+}
+
+void sendData(volatile uint8_t* buffer, volatile uint8_t len, Adafruit_BLE_UART* uart){
+  unsigned int length = 0;
+  unsigned int bytesRemaining;
+  
+  char sendBuffer[128];
+  sendBuffer[length++] = 'D';
+  
+  // Get photometer reading
+  photometer.takeSample();
+  PHOTOREADING blankReading;
+  PHOTOREADING sampleReading;
+  ABSREADING absReading;
+  photometer.getBlank(&blankReading);
+  photometer.getSample(&sampleReading);
+  photometer.getAbsorbance(&absReading);
+  
+  // Get conductivity
+  CONDREADING condReading;
+  condProbe.getReading(&condReading);
+  
+  // TODO: Calculate pH
+  float pH = 0;
+  
+  sendBuffer[length++] = ',';
+  length += floatToTrimmedString(sendBuffer + length, condReading.conductivity);
+  sendBuffer[length++] = ',';
+  length += floatToTrimmedString(sendBuffer + length, condReading.temperature);
+  sendBuffer[length++] = ',';
+  length += floatToTrimmedString(sendBuffer + length, condReading.salinity);
+  sendBuffer[length++] = ',';
+  length += floatToTrimmedString(sendBuffer + length, pH);
+  sendBuffer[length++] = ',';
+  length += floatToTrimmedString(sendBuffer + length, blankReading.green);
+  sendBuffer[length++] = ',';
+  length += floatToTrimmedString(sendBuffer + length, blankReading.blue);
+  sendBuffer[length++] = ',';
+  length += floatToTrimmedString(sendBuffer + length, sampleReading.green);
+  sendBuffer[length++] = ',';
+  length += floatToTrimmedString(sendBuffer + length, sampleReading.blue);
+  sendBuffer[length++] = ',';
+  length += floatToTrimmedString(sendBuffer + length, absReading.Abs1);
+  sendBuffer[length++] = ',';
+  length += floatToTrimmedString(sendBuffer + length, absReading.Abs2);
+  sendBuffer[length++] = ',';
+  length += floatToTrimmedString(sendBuffer + length, absReading.R);
+  
+  sendBuffer[length++] = '\r';
+  sendBuffer[length++] = '\n';
+  
+  sendBTLEString(sendBuffer, length, uart);
 }
 
 void setupBTLEHandlers(){
   addBTLERXHandler(new HandlerItem('B', sendBlank));
+  addBTLERXHandler(new HandlerItem('R', sendData));
 }
 
 // Arduino Main Functions
+Adafruit_BLE_UART* btle;
 void setup(){
   Serial.begin(38400);
   while(!Serial);
@@ -82,11 +179,23 @@ void setup(){
   pinMode(10, OUTPUT);
   digitalWrite(10, HIGH);
   
+  Serial.print(F("Photometer Setup..."));
   setupPhotometer();
-  setupBTLE();
+  Serial.println(F("OK"));
+  
+  Serial.print(F("BTLE Hardware Setup..."));
+  btle = setupBTLE("pH-1");
+  Serial.println(F("OK"));
+  
+  Serial.print(F("BTLE Handlers Setup..."));
   setupBTLEHandlers();
+  Serial.println(F("OK"));
+  
+  Serial.print(F("Conductivity Probe Setup..."));
+  condProbe.begin(&Serial3);
+  Serial.println(F("OK"));
 }
 
 void loop(){
-  
+  btle->pollACI();
 }

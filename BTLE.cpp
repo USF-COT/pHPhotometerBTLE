@@ -1,4 +1,4 @@
-#include "BTLEFunctions.h"
+#include "BTLE.h"
 #include <stdlib.h>
 
 Adafruit_BLE_UART uart(ADAFRUITBLE_REQ, ADAFRUITBLE_RDY, ADAFRUITBLE_RST);
@@ -67,11 +67,12 @@ void rxCallback(uint8_t *buffer, uint8_t len)
   }
 }
 
-void setupBTLE(){
+Adafruit_BLE_UART* setupBTLE(char* broadcastName){
   uart.setRXcallback(rxCallback);
   uart.setACIcallback(aciCallback);
   uart.begin();
-  uart.setDeviceName("pH-1");
+  uart.setDeviceName(broadcastName);
+  return &uart;
 }
 
 HandlerItem::HandlerItem(char _prefix, BTLERXHandler _handler):prefix(_prefix), handler(_handler){

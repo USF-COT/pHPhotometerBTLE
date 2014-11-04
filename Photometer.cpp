@@ -35,7 +35,7 @@ void Photometer::takeBlank(){
   this->blank.green = averageSample(this->greenLightControl, this->detectorRead);
 }
 
-void Photometer::takeSample(){
+void Photometer::takeSample(){  
   this->sample.blue = averageSample(this->blueLightControl, this->detectorRead);
   this->sample.green = averageSample(this->greenLightControl, this->detectorRead);
   
