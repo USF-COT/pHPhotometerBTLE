@@ -8,6 +8,8 @@
 #include "OneWire.h"
 #include "OneWireTemperature.h"
 
+#include <math.h>
+
 #define BLUELEDPIN 9
 #define GREENLEDPIN 8
 #define DETECTORPIN A1
@@ -75,6 +77,7 @@ void sendBTLEString(char* sendBuffer, unsigned int length, Adafruit_BLE_UART* ua
   }
   
   #ifdef DEBUG
+  sendBuffer[length] = '\0';
   Serial.print("BTLE Sent: "); Serial.print(sendBuffer);
   #endif
 }
@@ -116,7 +119,7 @@ void sendData(volatile uint8_t* buffer, volatile uint8_t len, Adafruit_BLE_UART*
   unsigned int length = 0;
   unsigned int bytesRemaining;
   
-  char sendBuffer[128];
+  char sendBuffer[256];
   sendBuffer[length++] = 'D';
   
   // Get photometer reading
@@ -133,7 +136,13 @@ void sendData(volatile uint8_t* buffer, volatile uint8_t len, Adafruit_BLE_UART*
   condProbe.getReading(&condReading);
   
   // TODO: Calculate pH
-  float pH = 0;
+  float T = condReading.temperature + 273.15;
+  float pH = (-246.64209+0.315971*condReading.salinity);
+  pH += (0.00028855*condReading.salinity*condReading.salinity);
+  pH += (7229.23864-7.098137*condReading.salinity-0.057034*condReading.salinity*condReading.salinity)/T;
+  pH += (44.493382-0.052711*condReading.salinity)*log(T);
+  pH -= (0.0781344*T);
+  pH += log10(((absReading.R-(-0.007762+0.000045174*T))/(1-(absReading.R*(-0.020813+0.000260262*T+0.00010436*(condReading.salinity-35))))));
   
   sendBuffer[length++] = ',';
   length += floatToTrimmedString(sendBuffer + length, condReading.conductivity);

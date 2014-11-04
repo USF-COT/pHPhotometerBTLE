@@ -56,6 +56,7 @@ void rxCallback(uint8_t *buffer, uint8_t len)
         possibleHandler->runHandler((uint8_t*) rxBuffer, rxLength, &uart);
         break;
       }
+      possibleHandler = possibleHandler->getNext();
     }
     
     if(possibleHandler == NULL){
