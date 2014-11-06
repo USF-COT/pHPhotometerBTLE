@@ -25,6 +25,7 @@ class ASConductivity{
     
     void begin(HardwareSerial* _serial);
     void getReading(CONDREADING* dst);
+    void sendCommand(const char* command, char* response);
 };
 
 #endif

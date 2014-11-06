@@ -16,11 +16,6 @@ static volatile uint8_t rxBuffer[RXBUFFERMAX];
 static volatile uint8_t rxLength = 0;
 
 typedef void (*BTLERXHandler)(volatile uint8_t*, volatile uint8_t, Adafruit_BLE_UART*);
-struct HANDLERITEM{
-  char prefix;
-  BTLERXHandler handler;
-  HANDLERITEM* next;
-};
 
 class HandlerItem{
   private:

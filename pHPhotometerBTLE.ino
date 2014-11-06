@@ -82,7 +82,14 @@ void sendBTLEString(char* sendBuffer, unsigned int length, Adafruit_BLE_UART* ua
   #endif
 }
 
-void sendBlank(volatile uint8_t* buffer, volatile uint8_t len, Adafruit_BLE_UART* uart){
+static volatile boolean sendBlankPending;
+void sendBlankHandler(volatile uint8_t* buffer, volatile uint8_t len, Adafruit_BLE_UART* uart){
+  if(!sendBlankPending){
+    sendBlankPending = true;
+  }
+}
+
+void sendBlank(Adafruit_BLE_UART* uart){
   unsigned int length = 0;
   unsigned int bytesRemaining;
   
@@ -113,9 +120,17 @@ void sendBlank(volatile uint8_t* buffer, volatile uint8_t len, Adafruit_BLE_UART
   sendBuffer[length++] = '\n';
   
   sendBTLEString(sendBuffer, length, uart);
+  sendBlankPending = false;
 }
 
-void sendData(volatile uint8_t* buffer, volatile uint8_t len, Adafruit_BLE_UART* uart){
+static volatile boolean sendDataPending = false;
+void sendDataHandler(volatile uint8_t* buffer, volatile uint8_t len, Adafruit_BLE_UART* uart){
+  if(!sendDataPending){
+    sendDataPending = true;
+  }
+}
+  
+void sendData(Adafruit_BLE_UART* uart){
   unsigned int length = 0;
   unsigned int bytesRemaining;
   
@@ -171,11 +186,27 @@ void sendData(volatile uint8_t* buffer, volatile uint8_t len, Adafruit_BLE_UART*
   sendBuffer[length++] = '\n';
   
   sendBTLEString(sendBuffer, length, uart);
+  sendDataPending = false;
+}
+
+void sendConductivityString(volatile uint8_t* buffer, volatile uint8_t len, Adafruit_BLE_UART* uart){
+  char command[64];
+  strncpy(command, (char*)buffer+1, 64);
+  char* newLine = strrchr(command, '\r');
+  if(newLine){
+    newLine = '\0';
+  } else {
+    command[min(len, 64)] = '\0';
+  }
+  char response[30];
+  condProbe.sendCommand(command, response);
+  sendBTLEString(response, strlen(response), uart);
 }
 
 void setupBTLEHandlers(){
-  addBTLERXHandler(new HandlerItem('B', sendBlank));
-  addBTLERXHandler(new HandlerItem('R', sendData));
+  addBTLERXHandler(new HandlerItem('B', sendBlankHandler));
+  addBTLERXHandler(new HandlerItem('R', sendDataHandler));
+  addBTLERXHandler(new HandlerItem('X', sendConductivityString));
 }
 
 // Arduino Main Functions
@@ -207,4 +238,12 @@ void setup(){
 
 void loop(){
   btle->pollACI();
+  
+  if(sendBlankPending){
+    sendBlank(btle);
+  }
+  
+  if(sendDataPending){
+    sendData(btle);
+  }
 }
