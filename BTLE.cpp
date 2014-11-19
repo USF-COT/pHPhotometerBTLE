@@ -48,8 +48,9 @@ void rxCallback(uint8_t *buffer, uint8_t len)
   Serial.print("Length: "); Serial.println(rxLength);
   
   // If line end detected, process the data.
-  if(rxBuffer[rxLength - 1] == '\n'){
-    Serial.print(F("Received: ")); Serial.print((char*) rxBuffer);
+  if(rxBuffer[rxLength - 1] == '\n' || rxBuffer[rxLength - 1] == 'n'){
+    rxBuffer[rxLength - 1] = '\0';
+    Serial.print(F("Received: ")); Serial.println((char*) rxBuffer);
     HandlerItem* possibleHandler = HandlerHead;
     while(possibleHandler != NULL){
       if(possibleHandler->isPrefix(rxBuffer[0])){

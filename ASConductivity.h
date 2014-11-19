@@ -11,21 +11,23 @@ struct CONDREADING{
 
 typedef float (*TEMPREADFUN)();
 
-#define ASBUFMAX 30
-
 class ASConductivity{
   private:
     HardwareSerial* serial;
-    char buffer[ASBUFMAX];
     
     TEMPREADFUN tempReadFun;
+    
+    void flushReceive();
+    byte receiveResponseCode();
+    byte receiveResponse(char* response, byte responseBufferLength);
   public:
     ASConductivity(TEMPREADFUN);
     ~ASConductivity();
     
     void begin(HardwareSerial* _serial);
     void getReading(CONDREADING* dst);
-    void sendCommand(const char* command, char* response);
+    byte sendCommand(const char* command, char* response, byte responseBufferLength);
+    byte sendCommandCodeFlipped(const char* command, char* response, byte responseBufferLength);
 };
 
 #endif

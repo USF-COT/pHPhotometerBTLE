@@ -189,30 +189,41 @@ void sendData(Adafruit_BLE_UART* uart){
   sendDataPending = false;
 }
 
+void sendTemperatureHandler(volatile uint8_t* buffer, volatile uint8_t len, Adafruit_BLE_UART* uart){
+  char sendBuffer[32];
+  unsigned int length = 0;
+  
+  sendBuffer[length++] = 'T';
+  sendBuffer[length++] = ',';
+  
+  float temperature = tempProbe.getTemperature();
+  
+  length += floatToTrimmedString(sendBuffer + length, temperature);
+  sendBuffer[length++] = '\r';
+  sendBuffer[length++] = '\n';
+  
+  sendBTLEString(sendBuffer, length, uart);
+}
+
 void sendConductivityString(volatile uint8_t* buffer, volatile uint8_t len, Adafruit_BLE_UART* uart){
   char command[64];
   strncpy(command, (char*)buffer+1, 64);
-  char* newLine = strrchr(command, '\r');
-  if(newLine){
-    newLine = '\0';
-  } else {
-    command[min(len, 64)] = '\0';
-  }
   char response[30];
-  condProbe.sendCommand(command, response);
+  condProbe.sendCommand(command, response, 30);
   sendBTLEString(response, strlen(response), uart);
 }
 
 void setupBTLEHandlers(){
   addBTLERXHandler(new HandlerItem('B', sendBlankHandler));
   addBTLERXHandler(new HandlerItem('R', sendDataHandler));
+  addBTLERXHandler(new HandlerItem('T', sendTemperatureHandler));
   addBTLERXHandler(new HandlerItem('X', sendConductivityString));
 }
 
 // Arduino Main Functions
 Adafruit_BLE_UART* btle;
 void setup(){
-  Serial.begin(38400);
+  Serial.begin(9600);
   while(!Serial);
   
   // Initialize hardware SS pin
