@@ -20,7 +20,7 @@ void ASConductivity::begin(HardwareSerial* _serial){
 void ASConductivity::getReading(CONDREADING* dst){
   // Try to set temperature adjustment first
   dst->temperature = this->tempReadFun();
-  if(dst->temperature >= 0){
+  if(dst->temperature >= 0 && dst->temperature < 85){
     this->serial->print(F("T,")); this->serial->print(dst->temperature); this->serial->print(F("\r"));
     this->receiveResponseCode();
   }
@@ -70,8 +70,9 @@ byte ASConductivity::sendCommand(const char* command, char* response, byte respo
   
   // Check if this is a command that sends a response first
   byte bytesRead = 0;
-  if(command[0] == 'R' && strlen(command) == 1){
+  if(command[0] == 'R' && strlen(command) <= 3){
     Serial.print(F("Received Read Request.  Command: "));  Serial.println(command);
+    this->receiveResponseCode();
     bytesRead = this->receiveResponse(response, responseBufferLength);
   } else if (command[0] == 'X' ||
              strcmp(command, "SLEEP") == 0 ){
