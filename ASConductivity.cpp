@@ -55,6 +55,7 @@ byte ASConductivity::receiveResponseCode(){
 }
 
 byte ASConductivity::receiveResponse(char* response, byte responseBufferLength){
+  this->flushReceive();
   byte bytesRead = 0;
   if(response){
     bytesRead = this->serial->readBytesUntil('\r', response, responseBufferLength);
@@ -66,13 +67,15 @@ byte ASConductivity::receiveResponse(char* response, byte responseBufferLength){
 
 byte ASConductivity::sendCommand(const char* command, char* response, byte responseBufferLength){
   this->flushReceive();
+  Serial.println();
+  Serial.print(F("Command: "));  Serial.println(command);
   this->serial->print(command); this->serial->print(F("\r"));
   
   // Check if this is a command that sends a response first
   byte bytesRead = 0;
   if(command[0] == 'R' && strlen(command) <= 3){
-    Serial.print(F("Received Read Request.  Command: "));  Serial.println(command);
-    this->receiveResponseCode();
+    Serial.println(F("Received Read Request."));
+    //this->receiveResponseCode();
     bytesRead = this->receiveResponse(response, responseBufferLength);
   } else if (command[0] == 'X' ||
              strcmp(command, "SLEEP") == 0 ){
