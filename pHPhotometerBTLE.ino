@@ -82,54 +82,97 @@ void sendBTLEString(char* sendBuffer, unsigned int length, Adafruit_BLE_UART* ua
   #endif
 }
 
+static unsigned short blankReadings;
 static volatile boolean sendBlankPending;
 void sendBlankHandler(volatile uint8_t* buffer, volatile uint8_t len, Adafruit_BLE_UART* uart){
   if(!sendBlankPending){
+    blankReadings = 0;
     sendBlankPending = true;
   }
 }
+
+#define BLANKDIFFLIMIT 4
+#define BLANKREADLIMIT 5
 
 void sendBlank(Adafruit_BLE_UART* uart){
   unsigned int length = 0;
   unsigned int bytesRemaining;
   
   char sendBuffer[128];
-  sendBuffer[length++] = 'C';
   
   // Get blank
+  PHOTOREADING oldBlank, currentBlank;
+  photometer.getBlank(&oldBlank);
   photometer.takeBlank();
-  PHOTOREADING blank;
-  photometer.getBlank(&blank);
+  photometer.getBlank(&currentBlank);
   
-  // Get conductivity
-  CONDREADING condReading;
-  condProbe.getReading(&condReading);
+  float greenBlankDiff = abs(oldBlank.green - currentBlank.green);
+  float blueBlankDiff = abs(oldBlank.blue - currentBlank.blue);
   
-  sendBuffer[length++] = ',';
-  length += floatToTrimmedString(sendBuffer + length, condReading.conductivity);
-  sendBuffer[length++] = ',';
-  length += floatToTrimmedString(sendBuffer + length, condReading.temperature);
-  sendBuffer[length++] = ',';
-  length += floatToTrimmedString(sendBuffer + length, condReading.salinity);
-  sendBuffer[length++] = ',';
-  length += floatToTrimmedString(sendBuffer + length, blank.green);
-  sendBuffer[length++] = ',';
-  length += floatToTrimmedString(sendBuffer + length, blank.blue);
+  if(++blankReadings > BLANKREADLIMIT){
+    Serial.println(F("Blank reading limit exceeded.  Returning value without convergence."));
+    greenBlankDiff = 0;
+    blueBlankDiff = 0;
+  }
   
-  sendBuffer[length++] = '\r';
-  sendBuffer[length++] = '\n';
-  
-  sendBTLEString(sendBuffer, length, uart);
-  sendBlankPending = false;
+  if(greenBlankDiff <= BLANKDIFFLIMIT && blueBlankDiff <= BLANKDIFFLIMIT){
+    // This is a good reading, no more necessary
+    sendBlankPending = false;
+    
+    // Get conductivity
+    CONDREADING condReading;
+    condProbe.getReading(&condReading);
+    
+    sendBuffer[length++] = 'C';
+    sendBuffer[length++] = ',';
+    length += floatToTrimmedString(sendBuffer + length, condReading.conductivity);
+    sendBuffer[length++] = ',';
+    length += floatToTrimmedString(sendBuffer + length, condReading.temperature);
+    sendBuffer[length++] = ',';
+    length += floatToTrimmedString(sendBuffer + length, condReading.salinity);
+    sendBuffer[length++] = ',';
+    
+    length += floatToTrimmedString(sendBuffer + length, currentBlank.green);
+    sendBuffer[length++] = ',';
+    length += floatToTrimmedString(sendBuffer + length, currentBlank.blue);
+    
+    sendBuffer[length++] = '\r';
+    sendBuffer[length++] = '\n';
+    
+    sendBTLEString(sendBuffer, length, uart);
+  } else {
+    Serial.println(F("Reading not stable."));
+    Serial.print(F("Green Diff: ")); Serial.println(greenBlankDiff);
+    Serial.print(F("Blue Diff: ")); Serial.println(blueBlankDiff);
+    /*
+    // This is not a stable reading.  Send update and repeat.
+    sendBuffer[length++] = 'U';
+    sendBuffer[length++] = ',';
+    
+    length += floatToTrimmedString(sendBuffer + length, greenBlankDiff);
+    sendBuffer[length++] = ',';
+    length += floatToTrimmedString(sendBuffer + length, blueBlankDiff);
+    sendBuffer[length++] = ',';
+    length += floatToTrimmedString(sendBuffer + length, oldBlank.green);
+    sendBuffer[length++] = ',';
+    length += floatToTrimmedString(sendBuffer + length, oldBlank.blue);
+    sendBuffer[length++] = ',';
+    */
+  }
 }
 
 static volatile boolean sendDataPending = false;
+static unsigned short dataReadings;
 void sendDataHandler(volatile uint8_t* buffer, volatile uint8_t len, Adafruit_BLE_UART* uart){
   if(!sendDataPending){
+    dataReadings = 0;
     sendDataPending = true;
   }
 }
-  
+
+#define SAMPLEDIFFLIMIT 4
+#define SAMPLEREADLIMIT 5
+
 void sendData(Adafruit_BLE_UART* uart){
   unsigned int length = 0;
   unsigned int bytesRemaining;
@@ -138,55 +181,92 @@ void sendData(Adafruit_BLE_UART* uart){
   sendBuffer[length++] = 'D';
   
   // Get photometer reading
-  photometer.takeSample();
   PHOTOREADING blankReading;
-  PHOTOREADING sampleReading;
-  ABSREADING absReading;
-  photometer.getBlank(&blankReading);
-  photometer.getSample(&sampleReading);
-  photometer.getAbsorbance(&absReading);
+  PHOTOREADING oldSample, currentSample;
+  photometer.getSample(&oldSample);
+  photometer.takeSample();
+  photometer.getSample(&currentSample);
   
-  // Get conductivity
-  CONDREADING condReading;
-  condProbe.getReading(&condReading);
+  float greenSampleDiff = abs(oldSample.green - currentSample.green);
+  float blueSampleDiff = abs(oldSample.blue - currentSample.blue);
   
-  // TODO: Calculate pH
-  float T = condReading.temperature + 273.15;
-  float pH = (-246.64209+0.315971*condReading.salinity);
-  pH += (0.00028855*condReading.salinity*condReading.salinity);
-  pH += (7229.23864-7.098137*condReading.salinity-0.057034*condReading.salinity*condReading.salinity)/T;
-  pH += (44.493382-0.052711*condReading.salinity)*log(T);
-  pH -= (0.0781344*T);
-  pH += log10(((absReading.R-(-0.007762+0.000045174*T))/(1-(absReading.R*(-0.020813+0.000260262*T+0.00010436*(condReading.salinity-35))))));
+  if(++dataReadings > SAMPLEREADLIMIT){
+    Serial.println(F("Sample read limit exceeded.  Returning non-converged reading."));
+    greenSampleDiff = 0;
+    blueSampleDiff = 0;
+  }
   
-  sendBuffer[length++] = ',';
-  length += floatToTrimmedString(sendBuffer + length, condReading.conductivity);
-  sendBuffer[length++] = ',';
-  length += floatToTrimmedString(sendBuffer + length, condReading.temperature);
-  sendBuffer[length++] = ',';
-  length += floatToTrimmedString(sendBuffer + length, condReading.salinity);
-  sendBuffer[length++] = ',';
-  length += floatToTrimmedString(sendBuffer + length, pH);
-  sendBuffer[length++] = ',';
-  length += floatToTrimmedString(sendBuffer + length, blankReading.green);
-  sendBuffer[length++] = ',';
-  length += floatToTrimmedString(sendBuffer + length, blankReading.blue);
-  sendBuffer[length++] = ',';
-  length += floatToTrimmedString(sendBuffer + length, sampleReading.green);
-  sendBuffer[length++] = ',';
-  length += floatToTrimmedString(sendBuffer + length, sampleReading.blue);
-  sendBuffer[length++] = ',';
-  length += floatToTrimmedString(sendBuffer + length, absReading.Abs1);
-  sendBuffer[length++] = ',';
-  length += floatToTrimmedString(sendBuffer + length, absReading.Abs2);
-  sendBuffer[length++] = ',';
-  length += floatToTrimmedString(sendBuffer + length, absReading.R);
-  
-  sendBuffer[length++] = '\r';
-  sendBuffer[length++] = '\n';
-  
-  sendBTLEString(sendBuffer, length, uart);
-  sendDataPending = false;
+  if(greenSampleDiff <= SAMPLEDIFFLIMIT && blueSampleDiff <= SAMPLEDIFFLIMIT){
+    // Samples have converged, do not do another sample
+    sendDataPending = false;
+    
+    ABSREADING absReading;
+    photometer.getBlank(&blankReading);
+    photometer.getAbsorbance(&absReading);
+    
+    // Get conductivity
+    CONDREADING condReading;
+    condProbe.getReading(&condReading);
+    
+    // TODO: Calculate pH
+    float T = condReading.temperature + 273.15;
+    float pH = (-246.64209+0.315971*condReading.salinity);
+    pH += (0.00028855*condReading.salinity*condReading.salinity);
+    pH += (7229.23864-7.098137*condReading.salinity-0.057034*condReading.salinity*condReading.salinity)/T;
+    pH += (44.493382-0.052711*condReading.salinity)*log(T);
+    pH -= (0.0781344*T);
+    pH += log10(((absReading.R-(-0.007762+0.000045174*T))/(1-(absReading.R*(-0.020813+0.000260262*T+0.00010436*(condReading.salinity-35))))));
+    
+    sendBuffer[length++] = ',';
+    length += floatToTrimmedString(sendBuffer + length, condReading.conductivity);
+    sendBuffer[length++] = ',';
+    length += floatToTrimmedString(sendBuffer + length, condReading.temperature);
+    sendBuffer[length++] = ',';
+    length += floatToTrimmedString(sendBuffer + length, condReading.salinity);
+    sendBuffer[length++] = ',';
+    length += floatToTrimmedString(sendBuffer + length, pH);
+    sendBuffer[length++] = ',';
+    length += floatToTrimmedString(sendBuffer + length, blankReading.green);
+    sendBuffer[length++] = ',';
+    length += floatToTrimmedString(sendBuffer + length, blankReading.blue);
+    sendBuffer[length++] = ',';
+    length += floatToTrimmedString(sendBuffer + length, currentSample.green);
+    sendBuffer[length++] = ',';
+    length += floatToTrimmedString(sendBuffer + length, currentSample.blue);
+    sendBuffer[length++] = ',';
+    length += floatToTrimmedString(sendBuffer + length, absReading.Abs1);
+    sendBuffer[length++] = ',';
+    length += floatToTrimmedString(sendBuffer + length, absReading.Abs2);
+    sendBuffer[length++] = ',';
+    length += floatToTrimmedString(sendBuffer + length, absReading.R);
+    
+    sendBuffer[length++] = '\r';
+    sendBuffer[length++] = '\n';
+    
+    sendBTLEString(sendBuffer, length, uart);
+  } else {
+    Serial.println(F("Reading not stable."));
+    Serial.print(F("Green Diff: ")); Serial.println(greenSampleDiff);
+    Serial.print(F("Blue Diff: ")); Serial.println(blueSampleDiff);
+    /*
+    // Samples have not converged.  Send update and resample
+    sendBuffer[length++] = 'U';
+    sendBuffer[length++] = ',';
+    
+    length += floatToTrimmedString(sendBuffer + length, greenSampleDiff);
+    sendBuffer[length++] = ',';
+    length += floatToTrimmedString(sendBuffer + length, blueSampleDiff);
+    sendBuffer[length++] = ',';
+    
+    length += floatToTrimmedString(sendBuffer + length, oldSample.green);
+    sendBuffer[length++] = ',';
+    length += floatToTrimmedString(sendBuffer + length, oldSample.blue);
+    sendBuffer[length++] = ',';
+    length += floatToTrimmedString(sendBuffer + length, currentSample.green);
+    sendBuffer[length++] = ',';
+    length += floatToTrimmedString(sendBuffer + length, currentSample.blue);
+    */
+  }
 }
 
 void sendTemperatureHandler(volatile uint8_t* buffer, volatile uint8_t len, Adafruit_BLE_UART* uart){
