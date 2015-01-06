@@ -1,33 +1,38 @@
 #include "ASConductivity.h"
 #include <string.h>
+#include <Wire.h>
+#include "utilities.h"
 
 ASConductivity::ASConductivity(TEMPREADFUN _tempReadFun){
   this->tempReadFun = _tempReadFun;
-  this->serial = NULL;
 }
 
 ASConductivity::~ASConductivity(){ 
 }
 
-void ASConductivity::begin(HardwareSerial* _serial){
-  this->serial = _serial;
-  this->serial->begin(38400);
-  this->serial->setTimeout(2000);
+void ASConductivity::begin(byte SCLpin, byte SDApin){
+  Wire.beginOnPins(SCLpin, SDApin);
   this->sendCommand("RESPONSE,1", NULL, 0);
   this->sendCommand("C,0", NULL, 0);
 }
 
 void ASConductivity::getReading(CONDREADING* dst){
+  char responseBuffer[48];
+  
   // Try to set temperature adjustment first
+  char tempCommand[16];
   dst->temperature = this->tempReadFun();
   if(dst->temperature >= 0 && dst->temperature < 85){
-    this->serial->print(F("T,")); this->serial->print(dst->temperature); this->serial->print(F("\r"));
-    this->receiveResponseCode();
+    tempCommand[0] = 'T';
+    tempCommand[1] = ',';
+    unsigned int len = floatToTrimmedString(tempCommand + 2, dst->temperature);
+    tempCommand[len++] = '\r';
+    tempCommand[len++] = 0;
+    this->sendCommand(tempCommand, NULL, 0);
   }
   
   // Request a single reading
-  char responseBuffer[32];
-  byte bytesRead = this->sendCommand("R", responseBuffer, 32);
+  byte bytesRead = this->sendCommand("R", responseBuffer, 48);
   if(bytesRead > 0){
     Serial.print(F("Conductivity (")); Serial.print(bytesRead); Serial.print(F("): "));  Serial.println(responseBuffer);
     char* conductivity = strtok(responseBuffer, ",");
@@ -39,52 +44,60 @@ void ASConductivity::getReading(CONDREADING* dst){
   }
 }
 
-void ASConductivity::flushReceive(){
-  while(this->serial->available()){
-    this->serial->read();
-  }
-}
-
-byte ASConductivity::receiveResponseCode(){
-  char responseCode[4];
-  byte bytesRead = this->serial->readBytesUntil('\r', responseCode, 4);
-  responseCode[3] = '\0';
-  
-  Serial.print(F("AS Conductivity Response: ")); Serial.println(responseCode);
-  return bytesRead;
-}
-
 byte ASConductivity::receiveResponse(char* response, byte responseBufferLength){
-  this->flushReceive();
-  byte bytesRead = 0;
-  if(response){
-    bytesRead = this->serial->readBytesUntil('\r', response, responseBufferLength);
-    response[min(bytesRead, responseBufferLength-1)] = '\0';
+  Wire.requestFrom(ASCONADDRESS, responseBufferLength+1, 1);  // +1 for code
+  byte code = Wire.read();
+  
+  switch (code){
+    case 1:
+      Serial.println(F("Success"));
+      break;
+    case 2:
+      Serial.println(F("Failed"));
+      break;
+    case 254:
+      Serial.println(F("Pending"));
+      return code;
+    case 255:
+      Serial.println(F("No Data"));
+      return code;
   }
   
-  return bytesRead;
+  char in_char;
+  uint8_t i;
+  while(Wire.available() && i < responseBufferLength){
+    in_char = Wire.read();
+    response[i++] = in_char;
+    if(in_char == 0){
+      Wire.endTransmission();
+      break;
+    }
+  }
+  return code;
 }
 
 byte ASConductivity::sendCommand(const char* command, char* response, byte responseBufferLength){
-  this->flushReceive();
-  Serial.println();
-  Serial.print(F("Command: "));  Serial.println(command);
-  this->serial->print(command); this->serial->print(F("\r"));
+  Serial.print(F("Sending to AS Cond: ")); Serial.print(command);
   
-  // Check if this is a command that sends a response first
-  byte bytesRead = 0;
-  if(command[0] == 'R' && strlen(command) <= 3){
-    Serial.println(F("Received Read Request."));
-    //this->receiveResponseCode();
-    bytesRead = this->receiveResponse(response, responseBufferLength);
-  } else if (command[0] == 'X' ||
-             strcmp(command, "SLEEP") == 0 ){
-    this->receiveResponseCode();
-    bytesRead = this->receiveResponse(response, responseBufferLength);
+  Wire.beginTransmission(ASCONADDRESS);
+  Wire.write(command);
+  Wire.endTransmission();
+  
+  // Delay per requirements in Atlas Scientific Docs
+  // https://www.atlas-scientific.com/_files/code/ec-i2c.pdf?
+  if(command[0] == 'R' || command[0] == 'C'){
+    delay(1400);
   } else {
-    bytesRead = this->receiveResponse(response, responseBufferLength);
-    this->receiveResponseCode();
+    delay(300);
   }
   
-  return bytesRead;
+  byte code = this->receiveResponse(response, responseBufferLength);
+  
+  // Delay and try again if pending
+  if(code == 254){
+    Serial.print(F("Retrying after 500ms..."));
+    delay(500);
+    this->receiveResponse(response, responseBufferLength);
+  }
+  return code;
 }

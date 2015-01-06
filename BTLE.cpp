@@ -1,29 +1,17 @@
 #include "BTLE.h"
 #include <stdlib.h>
 
-Adafruit_BLE_UART uart(ADAFRUITBLE_REQ, ADAFRUITBLE_RDY, ADAFRUITBLE_RST);
+void RFduinoBLE_onAdvertisement(){
+  Serial.println(F("Advertising..."));
+}
 
-/**************************************************************************/
-/*!
-    This function is called whenever select ACI events happen
-*/
-/**************************************************************************/
-void aciCallback(aci_evt_opcode_t event)
+void RFduinoBLE_onConnect()
 {
-  switch(event)
-  {
-    case ACI_EVT_DEVICE_STARTED:
-      Serial.println(F("Advertising started"));
-      break;
-    case ACI_EVT_CONNECTED:
-      Serial.println(F("Connected!"));
-      break;
-    case ACI_EVT_DISCONNECTED:
-      Serial.println(F("Disconnected or advertising timed out"));
-      break;
-    default:
-      break;
-  }
+  Serial.println(F("Connected!"));
+}
+
+void RFduinoBLE_onDisconnect(){
+  Serial.println(F("Disconnected"));
 }
 
 HandlerItem* HandlerHead = NULL;
@@ -32,7 +20,7 @@ HandlerItem* HandlerHead = NULL;
     This function is called whenever data arrives on the RX channel
 */
 /**************************************************************************/
-void rxCallback(uint8_t *buffer, uint8_t len)
+void RFduinoBLE_onReceive(char *buffer, int len)
 {
   // Fill receive buffer
   if((rxLength + len) > RXBUFFERMAX){
@@ -54,7 +42,7 @@ void rxCallback(uint8_t *buffer, uint8_t len)
     HandlerItem* possibleHandler = HandlerHead;
     while(possibleHandler != NULL){
       if(possibleHandler->isPrefix(rxBuffer[0])){
-        possibleHandler->runHandler((uint8_t*) rxBuffer, rxLength, &uart);
+        possibleHandler->runHandler(rxBuffer, rxLength);
         break;
       }
       possibleHandler = possibleHandler->getNext();
@@ -69,12 +57,25 @@ void rxCallback(uint8_t *buffer, uint8_t len)
   }
 }
 
-Adafruit_BLE_UART* setupBTLE(char* broadcastName){
-  uart.setRXcallback(rxCallback);
-  uart.setACIcallback(aciCallback);
-  uart.begin();
-  uart.setDeviceName(broadcastName);
-  return &uart;
+void setupBTLE(char* broadcastName){
+  RFduinoBLE.deviceName = broadcastName;
+  RFduinoBLE.txPowerLevel = -8;
+  RFduinoBLE.advertisementInterval = 100;
+  RFduinoBLE.begin();
+}
+
+void sendBTLEString(char* sendBuffer, unsigned int length){
+  unsigned int bytesRemaining;
+  
+  for(unsigned int i = 0; i < length; i+=20){
+    bytesRemaining = min(length - i, 20);
+    RFduinoBLE.send(sendBuffer + i, bytesRemaining);
+  }
+  
+  #ifdef DEBUG
+  sendBuffer[length] = '\0';
+  Serial.print("BTLE Sent: "); Serial.print(sendBuffer);
+  #endif
 }
 
 HandlerItem::HandlerItem(char _prefix, BTLERXHandler _handler):prefix(_prefix), handler(_handler){
@@ -95,8 +96,8 @@ HandlerItem* HandlerItem::getNext(){
   return this->next;
 }
 
-void HandlerItem::runHandler(uint8_t* buffer, uint8_t len, Adafruit_BLE_UART* uart){
-  this->handler(buffer, len, uart);
+void HandlerItem::runHandler(volatile char* buffer, volatile int len){
+  this->handler(buffer, len);
 }
 
 void addBTLERXHandler(HandlerItem* newItem){

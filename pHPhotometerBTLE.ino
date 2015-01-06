@@ -1,7 +1,9 @@
 #include "Photometer.h"
 
 #include <SPI.h>
-#include "Adafruit_BLE_UART.h"
+#include <Wire.h>
+#include "utilities.h"
+#include <RFduinoBLE.h>
 #include "BTLE.h"
 #include "ASConductivity.h"
 
@@ -10,9 +12,9 @@
 
 #include <math.h>
 
-#define BLUELEDPIN 9
-#define GREENLEDPIN 8
-#define DETECTORPIN A1
+#define BLUELEDPIN 2
+#define GREENLEDPIN 1
+#define DETECTORPIN 6
 
 #define DEBUG
 
@@ -30,12 +32,15 @@ Photometer photometer(blueLEDControl, greenLEDControl, readLightConverter);
 
 void setupPhotometer(){
   pinMode(BLUELEDPIN, OUTPUT);
-  pinMode(GREENLEDPIN, 8);
+  pinMode(GREENLEDPIN, OUTPUT);
   pinMode(DETECTORPIN, INPUT);
 }
 
 // Conductivity Class Setup
-OneWireTemperature tempProbe(A0);
+#define SCLPIN 3
+#define SDAPIN 4
+
+OneWireTemperature tempProbe(5);
 float tempReadFun(){
   float temperature = tempProbe.getTemperature();
   if(temperature < 0){
@@ -46,45 +51,10 @@ float tempReadFun(){
 }
 ASConductivity condProbe(tempReadFun);
 
-//BTLE Handlers and Utilities
-unsigned int floatToTrimmedString(char* dest, float value){
-  char floatBuffer[16];
-  unsigned int floatLength, offset;
-  
-  dtostrf(value, 8, 3, floatBuffer);
-  floatLength = strlen(floatBuffer);
-  offset = 0;
-  for(offset=0; offset < 12; ++offset){
-    if(floatBuffer[offset] != 0x20){
-      break;
-    }
-  }
-    
-  floatLength -= offset;
-  strncpy(dest, floatBuffer + offset, floatLength);
-  
-  return floatLength;
-}
-
-// HACK: Adafruit lib chokes on strings over 20 chars
-//       must send chunks of 20 chars at a time.
-void sendBTLEString(char* sendBuffer, unsigned int length, Adafruit_BLE_UART* uart){
-  unsigned int bytesRemaining;
-  
-  for(unsigned int i = 0; i < length; i+=20){
-    bytesRemaining = min(length - i, 20);
-    uart->write((uint8_t*)sendBuffer + i, bytesRemaining);
-  }
-  
-  #ifdef DEBUG
-  sendBuffer[length] = '\0';
-  Serial.print("BTLE Sent: "); Serial.print(sendBuffer);
-  #endif
-}
-
+//BTLE Handlers
 static unsigned short blankReadings;
 static volatile boolean sendBlankPending;
-void sendBlankHandler(volatile uint8_t* buffer, volatile uint8_t len, Adafruit_BLE_UART* uart){
+void sendBlankHandler(volatile char* buffer, volatile int len){
   if(!sendBlankPending){
     blankReadings = 0;
     sendBlankPending = true;
@@ -94,7 +64,7 @@ void sendBlankHandler(volatile uint8_t* buffer, volatile uint8_t len, Adafruit_B
 #define BLANKDIFFLIMIT 4
 #define BLANKREADLIMIT 5
 
-void sendBlank(Adafruit_BLE_UART* uart){
+void sendBlank(){
   unsigned int length = 0;
   unsigned int bytesRemaining;
   
@@ -139,31 +109,17 @@ void sendBlank(Adafruit_BLE_UART* uart){
     sendBuffer[length++] = '\r';
     sendBuffer[length++] = '\n';
     
-    sendBTLEString(sendBuffer, length, uart);
+    sendBTLEString(sendBuffer, length);
   } else {
     Serial.println(F("Reading not stable."));
     Serial.print(F("Green Diff: ")); Serial.println(greenBlankDiff);
     Serial.print(F("Blue Diff: ")); Serial.println(blueBlankDiff);
-    /*
-    // This is not a stable reading.  Send update and repeat.
-    sendBuffer[length++] = 'U';
-    sendBuffer[length++] = ',';
-    
-    length += floatToTrimmedString(sendBuffer + length, greenBlankDiff);
-    sendBuffer[length++] = ',';
-    length += floatToTrimmedString(sendBuffer + length, blueBlankDiff);
-    sendBuffer[length++] = ',';
-    length += floatToTrimmedString(sendBuffer + length, oldBlank.green);
-    sendBuffer[length++] = ',';
-    length += floatToTrimmedString(sendBuffer + length, oldBlank.blue);
-    sendBuffer[length++] = ',';
-    */
   }
 }
 
 static volatile boolean sendDataPending = false;
 static unsigned short dataReadings;
-void sendDataHandler(volatile uint8_t* buffer, volatile uint8_t len, Adafruit_BLE_UART* uart){
+void sendDataHandler(volatile char* buffer, volatile int len){
   if(!sendDataPending){
     dataReadings = 0;
     sendDataPending = true;
@@ -173,7 +129,7 @@ void sendDataHandler(volatile uint8_t* buffer, volatile uint8_t len, Adafruit_BL
 #define SAMPLEDIFFLIMIT 4
 #define SAMPLEREADLIMIT 5
 
-void sendData(Adafruit_BLE_UART* uart){
+void sendData(){
   unsigned int length = 0;
   unsigned int bytesRemaining;
   
@@ -243,7 +199,7 @@ void sendData(Adafruit_BLE_UART* uart){
     sendBuffer[length++] = '\r';
     sendBuffer[length++] = '\n';
     
-    sendBTLEString(sendBuffer, length, uart);
+    sendBTLEString(sendBuffer, length);
   } else {
     Serial.println(F("Reading not stable."));
     Serial.print(F("Green Diff: ")); Serial.println(greenSampleDiff);
@@ -269,7 +225,7 @@ void sendData(Adafruit_BLE_UART* uart){
   }
 }
 
-void sendTemperatureHandler(volatile uint8_t* buffer, volatile uint8_t len, Adafruit_BLE_UART* uart){
+void sendTemperatureHandler(volatile char* buffer, volatile int len){
   char sendBuffer[32];
   unsigned int length = 0;
   
@@ -282,15 +238,15 @@ void sendTemperatureHandler(volatile uint8_t* buffer, volatile uint8_t len, Adaf
   sendBuffer[length++] = '\r';
   sendBuffer[length++] = '\n';
   
-  sendBTLEString(sendBuffer, length, uart);
+  sendBTLEString(sendBuffer, length);
 }
 
-void sendConductivityString(volatile uint8_t* buffer, volatile uint8_t len, Adafruit_BLE_UART* uart){
+void sendConductivityString(volatile char* buffer, volatile int len){
   char command[64];
   strncpy(command, (char*)buffer+1, 64);
   char response[30];
   condProbe.sendCommand(command, response, 30);
-  sendBTLEString(response, strlen(response), uart);
+  sendBTLEString(response, strlen(response));
 }
 
 void setupBTLEHandlers(){
@@ -301,7 +257,6 @@ void setupBTLEHandlers(){
 }
 
 // Arduino Main Functions
-Adafruit_BLE_UART* btle;
 void setup(){
   Serial.begin(9600);
   while(!Serial);
@@ -315,11 +270,11 @@ void setup(){
   Serial.println(F("OK"));
   
   Serial.print(F("Conductivity Probe Setup..."));
-  condProbe.begin(&Serial3);
+  condProbe.begin(SCLPIN, SDAPIN);
   Serial.println(F("OK"));
   
   Serial.print(F("BTLE Hardware Setup..."));
-  btle = setupBTLE("pH-1");
+  setupBTLE("pH-1");
   Serial.println(F("OK"));
   
   Serial.print(F("BTLE Handlers Setup..."));
@@ -328,13 +283,11 @@ void setup(){
 }
 
 void loop(){
-  btle->pollACI();
-  
   if(sendBlankPending){
-    sendBlank(btle);
+    sendBlank();
   }
   
   if(sendDataPending){
-    sendData(btle);
+    sendData();
   }
 }
