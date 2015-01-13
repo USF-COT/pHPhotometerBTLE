@@ -10,12 +10,6 @@ ASConductivity::ASConductivity(TEMPREADFUN _tempReadFun){
 ASConductivity::~ASConductivity(){ 
 }
 
-void ASConductivity::begin(byte SCLpin, byte SDApin){
-  Wire.beginOnPins(SCLpin, SDApin);
-  this->sendCommand("RESPONSE,1", NULL, 0);
-  this->sendCommand("C,0", NULL, 0);
-}
-
 void ASConductivity::getReading(CONDREADING* dst){
   char responseBuffer[48];
   
@@ -25,19 +19,18 @@ void ASConductivity::getReading(CONDREADING* dst){
   if(dst->temperature >= 0 && dst->temperature < 85){
     tempCommand[0] = 'T';
     tempCommand[1] = ',';
-    unsigned int len = floatToTrimmedString(tempCommand + 2, dst->temperature);
-    tempCommand[len++] = '\r';
-    tempCommand[len++] = 0;
+    unsigned int len = dtostrf(dst->temperature, 2, tempCommand + 2);
+    tempCommand[len++] = '\0';
     this->sendCommand(tempCommand, NULL, 0);
   }
   
   // Request a single reading
-  byte bytesRead = this->sendCommand("R", responseBuffer, 48);
-  if(bytesRead > 0){
-    Serial.print(F("Conductivity (")); Serial.print(bytesRead); Serial.print(F("): "));  Serial.println(responseBuffer);
+  byte responseCode = this->sendCommand("R", responseBuffer, 48);
+  if(responseCode == ASSUCCESS){
+    Serial.print(F("Conductivity (")); Serial.print(strlen(responseBuffer)); Serial.print(F("): "));  Serial.println(responseBuffer);
     char* conductivity = strtok(responseBuffer, ",");
     dst->conductivity = atof(conductivity);
-    char* salinity = strtok(NULL, "\r");
+    char* salinity = strtok(NULL, ",");
     dst->salinity = atof(salinity);
   } else {
     Serial.println(F("No data received from conductivity board"));
@@ -45,26 +38,25 @@ void ASConductivity::getReading(CONDREADING* dst){
 }
 
 byte ASConductivity::receiveResponse(char* response, byte responseBufferLength){
-  Wire.requestFrom(ASCONADDRESS, responseBufferLength+1, 1);  // +1 for code
+  Wire.requestFrom(ASCONADDRESS, responseBufferLength+1, true);  // +1 for code
   byte code = Wire.read();
   
   switch (code){
-    case 1:
+    case ASSUCCESS:
       Serial.println(F("Success"));
       break;
-    case 2:
+    case ASFAILURE:
       Serial.println(F("Failed"));
-      break;
-    case 254:
+    case ASPENDING:
       Serial.println(F("Pending"));
-      return code;
-    case 255:
+    case ASNODATA:
       Serial.println(F("No Data"));
+      Wire.endTransmission();
       return code;
   }
   
   char in_char;
-  uint8_t i;
+  uint8_t i=0;
   while(Wire.available() && i < responseBufferLength){
     in_char = Wire.read();
     response[i++] = in_char;
@@ -77,7 +69,7 @@ byte ASConductivity::receiveResponse(char* response, byte responseBufferLength){
 }
 
 byte ASConductivity::sendCommand(const char* command, char* response, byte responseBufferLength){
-  Serial.print(F("Sending to AS Cond: ")); Serial.print(command);
+  Serial.print(F("Sending to AS Cond: ")); Serial.println(command);
   
   Wire.beginTransmission(ASCONADDRESS);
   Wire.write(command);
@@ -97,7 +89,7 @@ byte ASConductivity::sendCommand(const char* command, char* response, byte respo
   if(code == 254){
     Serial.print(F("Retrying after 500ms..."));
     delay(500);
-    this->receiveResponse(response, responseBufferLength);
+    code = this->receiveResponse(response, responseBufferLength);
   }
   return code;
 }

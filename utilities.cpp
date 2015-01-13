@@ -1,28 +1,50 @@
 #include "utilities.h"
+#include <math.h>
 
-// RFDuino stdlib does not have dtostrf
-char *dtostrf (double val, signed char width, unsigned char prec, char *sout) {
-  char fmt[20];
-  sprintf(fmt, "%%%d.%df", width, prec);
-  sprintf(sout, fmt, val);
-  return sout;
+// Modified from K&R C book
+int reverse(char* output){
+  int c, i, j;
+  
+  for(i = 0, j = strlen(output)-1; i < j; i++, j--){
+    c = output[i];
+    output[i] = output[j];
+    output[j] = c;
+  }
+  
+  return strlen(output);
 }
 
-unsigned int floatToTrimmedString(char* dest, float value){
-  char floatBuffer[16];
-  unsigned int floatLength, offset;
+int itoa(int n, char* output){
+  int i, sign;
   
-  dtostrf(value, 8, 3, floatBuffer);
-  floatLength = strlen(floatBuffer);
-  offset = 0;
-  for(offset=0; offset < 12; ++offset){
-    if(floatBuffer[offset] != 0x20){
-      break;
-    }
+  if((sign = n) < 0){
+    n = -n;
   }
-    
-  floatLength -= offset;
-  strncpy(dest, floatBuffer + offset, floatLength);
   
-  return floatLength;
+  i = 0;
+  do{
+      output[i++] = n % 10 + '0';
+  } while((n /= 10) > 0);
+  if(sign < 0){
+    output[i++] = '-';
+  }
+  output[i] = '\0';
+  return reverse(output);
+}
+
+int dtostrf(float val, int precision, char *output) {
+  int integer = (int) val;
+  
+  int decimal;
+  if(integer < 0){
+    decimal = (int)((integer - val) * pow(10, precision));
+  } else {
+    decimal = (int)((val - integer) * pow(10,precision));
+  }
+  
+  int len = itoa(integer, output);
+  output[len++] = '.';
+  len += itoa(decimal, output + len);
+  
+  return len;
 }

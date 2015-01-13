@@ -6,24 +6,33 @@
 #include <RFduinoBLE.h>
 #include "BTLE.h"
 #include "ASConductivity.h"
+#include "Adafruit_MCP23008.h"
 
 #include "OneWire.h"
 #include "OneWireTemperature.h"
 
 #include <math.h>
 
-#define BLUELEDPIN 2
-#define GREENLEDPIN 1
+#define BLUELEDPIN 7
+#define GREENLEDPIN 0
 #define DETECTORPIN 6
 
 #define DEBUG
 
+// I2C Wire Setup
+#define SCLPIN 3
+#define SDAPIN 4
+void setupWire(){
+  Wire.beginOnPins(SCLPIN, SDAPIN);
+}
+
 // Photometer Setup
+Adafruit_MCP23008 mcp;
 void blueLEDControl(int level){
-  digitalWrite(BLUELEDPIN, level);
+  mcp.digitalWrite(BLUELEDPIN, level);
 }
 void greenLEDControl(int level){
-  digitalWrite(GREENLEDPIN, level);
+  mcp.digitalWrite(GREENLEDPIN, level);
 }
 int readLightConverter(){
   return analogRead(DETECTORPIN);
@@ -31,15 +40,16 @@ int readLightConverter(){
 Photometer photometer(blueLEDControl, greenLEDControl, readLightConverter);
 
 void setupPhotometer(){
-  pinMode(BLUELEDPIN, OUTPUT);
-  pinMode(GREENLEDPIN, OUTPUT);
+  mcp.begin();
+  mcp.pinMode(BLUELEDPIN, OUTPUT);
+  mcp.digitalWrite(BLUELEDPIN, HIGH);
+  mcp.pinMode(GREENLEDPIN, OUTPUT);
+  mcp.digitalWrite(GREENLEDPIN, HIGH);
+  
   pinMode(DETECTORPIN, INPUT);
 }
 
 // Conductivity Class Setup
-#define SCLPIN 3
-#define SDAPIN 4
-
 OneWireTemperature tempProbe(5);
 float tempReadFun(){
   float temperature = tempProbe.getTemperature();
@@ -95,16 +105,16 @@ void sendBlank(){
     
     sendBuffer[length++] = 'C';
     sendBuffer[length++] = ',';
-    length += floatToTrimmedString(sendBuffer + length, condReading.conductivity);
+    length += dtostrf(condReading.conductivity, 2, sendBuffer + length);
     sendBuffer[length++] = ',';
-    length += floatToTrimmedString(sendBuffer + length, condReading.temperature);
+    length += dtostrf(condReading.temperature, 2, sendBuffer + length);
     sendBuffer[length++] = ',';
-    length += floatToTrimmedString(sendBuffer + length, condReading.salinity);
+    length += dtostrf(condReading.salinity, 2, sendBuffer + length);
     sendBuffer[length++] = ',';
     
-    length += floatToTrimmedString(sendBuffer + length, currentBlank.green);
+    length += dtostrf(currentBlank.green, 2, sendBuffer + length);
     sendBuffer[length++] = ',';
-    length += floatToTrimmedString(sendBuffer + length, currentBlank.blue);
+    length += dtostrf(currentBlank.blue, 2, sendBuffer + length);
     
     sendBuffer[length++] = '\r';
     sendBuffer[length++] = '\n';
@@ -174,27 +184,27 @@ void sendData(){
     pH += log10(((absReading.R-(-0.007762+0.000045174*T))/(1-(absReading.R*(-0.020813+0.000260262*T+0.00010436*(condReading.salinity-35))))));
     
     sendBuffer[length++] = ',';
-    length += floatToTrimmedString(sendBuffer + length, condReading.conductivity);
+    length += dtostrf(condReading.conductivity, 2, sendBuffer + length);
     sendBuffer[length++] = ',';
-    length += floatToTrimmedString(sendBuffer + length, condReading.temperature);
+    length += dtostrf(condReading.temperature, 2, sendBuffer + length);
     sendBuffer[length++] = ',';
-    length += floatToTrimmedString(sendBuffer + length, condReading.salinity);
+    length += dtostrf(condReading.salinity, 2, sendBuffer + length);
     sendBuffer[length++] = ',';
-    length += floatToTrimmedString(sendBuffer + length, pH);
+    length += dtostrf(pH, 2, sendBuffer + length);
     sendBuffer[length++] = ',';
-    length += floatToTrimmedString(sendBuffer + length, blankReading.green);
+    length += dtostrf(blankReading.green, 2, sendBuffer + length);
     sendBuffer[length++] = ',';
-    length += floatToTrimmedString(sendBuffer + length, blankReading.blue);
+    length += dtostrf(blankReading.blue, 2, sendBuffer + length);
     sendBuffer[length++] = ',';
-    length += floatToTrimmedString(sendBuffer + length, currentSample.green);
+    length += dtostrf(currentSample.green, 2, sendBuffer + length);
     sendBuffer[length++] = ',';
-    length += floatToTrimmedString(sendBuffer + length, currentSample.blue);
+    length += dtostrf(currentSample.blue, 2, sendBuffer + length);
     sendBuffer[length++] = ',';
-    length += floatToTrimmedString(sendBuffer + length, absReading.Abs1);
+    length += dtostrf(absReading.Abs1, 2, sendBuffer + length);
     sendBuffer[length++] = ',';
-    length += floatToTrimmedString(sendBuffer + length, absReading.Abs2);
+    length += dtostrf(absReading.Abs2, 2, sendBuffer + length);
     sendBuffer[length++] = ',';
-    length += floatToTrimmedString(sendBuffer + length, absReading.R);
+    length += dtostrf(absReading.R, 2, sendBuffer + length);
     
     sendBuffer[length++] = '\r';
     sendBuffer[length++] = '\n';
@@ -209,18 +219,18 @@ void sendData(){
     sendBuffer[length++] = 'U';
     sendBuffer[length++] = ',';
     
-    length += floatToTrimmedString(sendBuffer + length, greenSampleDiff);
+    length += dtostrf(sendBuffer + length, greenSampleDiff);
     sendBuffer[length++] = ',';
-    length += floatToTrimmedString(sendBuffer + length, blueSampleDiff);
+    length += dtostrf(sendBuffer + length, blueSampleDiff);
     sendBuffer[length++] = ',';
     
-    length += floatToTrimmedString(sendBuffer + length, oldSample.green);
+    length += dtostrf(sendBuffer + length, oldSample.green);
     sendBuffer[length++] = ',';
-    length += floatToTrimmedString(sendBuffer + length, oldSample.blue);
+    length += dtostrf(sendBuffer + length, oldSample.blue);
     sendBuffer[length++] = ',';
-    length += floatToTrimmedString(sendBuffer + length, currentSample.green);
+    length += dtostrf(sendBuffer + length, currentSample.green);
     sendBuffer[length++] = ',';
-    length += floatToTrimmedString(sendBuffer + length, currentSample.blue);
+    length += dtostrf(sendBuffer + length, currentSample.blue);
     */
   }
 }
@@ -234,7 +244,7 @@ void sendTemperatureHandler(volatile char* buffer, volatile int len){
   
   float temperature = tempProbe.getTemperature();
   
-  length += floatToTrimmedString(sendBuffer + length, temperature);
+  length += dtostrf(temperature, 2, sendBuffer + length);
   sendBuffer[length++] = '\r';
   sendBuffer[length++] = '\n';
   
@@ -242,11 +252,34 @@ void sendTemperatureHandler(volatile char* buffer, volatile int len){
 }
 
 void sendConductivityString(volatile char* buffer, volatile int len){
-  char command[64];
-  strncpy(command, (char*)buffer+1, 64);
-  char response[30];
-  condProbe.sendCommand(command, response, 30);
-  sendBTLEString(response, strlen(response));
+  char command[48];
+  strncpy(command, (char*)buffer+1, 48);
+  char response[48];
+  
+  // Remove \r or n at the end of the command for I2C mode
+  int com_length = strlen(command);
+  if(com_length > 2){
+    command[com_length - 2] = '\0';
+  }
+  
+  byte code = condProbe.sendCommand(command, response, 48);
+  char* errorResponse = NULL;
+  switch(code){
+    case ASFAILURE:
+      errorResponse = "Failed to Send\r\n";
+      break;
+    case ASPENDING:
+      errorResponse = "Pending\r\n";
+      break;
+    case ASNODATA:
+      errorResponse = "No Data\r\n";
+      break;
+  }
+  if(errorResponse){
+    sendBTLEString(errorResponse, strlen(errorResponse));
+  } else {
+    sendBTLEString(response, strlen(response));
+  }
 }
 
 void setupBTLEHandlers(){
@@ -261,16 +294,12 @@ void setup(){
   Serial.begin(9600);
   while(!Serial);
   
-  // Initialize hardware SS pin
-  pinMode(10, OUTPUT);
-  digitalWrite(10, HIGH);
+  Serial.print(F("Reassigning I2C Pins..."));
+  setupWire();
+  Serial.println(F("OK"));
   
   Serial.print(F("Photometer Setup..."));
   setupPhotometer();
-  Serial.println(F("OK"));
-  
-  Serial.print(F("Conductivity Probe Setup..."));
-  condProbe.begin(SCLPIN, SDAPIN);
   Serial.println(F("OK"));
   
   Serial.print(F("BTLE Hardware Setup..."));

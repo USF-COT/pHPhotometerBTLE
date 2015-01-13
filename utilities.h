@@ -3,7 +3,7 @@
 
 #include <Arduino.h>
 
-char *dtostrf (double val, signed char width, unsigned char prec, char *sout);
-unsigned int floatToTrimmedString(char* dest, float value);
+int itoa(int n, char* output);
+int dtostrf (float val, int precision, char *output);
 
 #endif
