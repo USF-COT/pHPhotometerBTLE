@@ -72,15 +72,15 @@ byte ASConductivity::sendCommand(const char* command, char* response, byte respo
   Serial.print(F("Sending to AS Cond: ")); Serial.println(command);
   
   Wire.beginTransmission(ASCONADDRESS);
-  Wire.write(command);
+  Wire.write((uint8_t*)command, strlen(command));
   Wire.endTransmission();
   
   // Delay per requirements in Atlas Scientific Docs
   // https://www.atlas-scientific.com/_files/code/ec-i2c.pdf?
   if(command[0] == 'R' || command[0] == 'C'){
-    delay(1400);
+    delay(1500);
   } else {
-    delay(300);
+    delay(400);
   }
   
   byte code = this->receiveResponse(response, responseBufferLength);

@@ -42,9 +42,9 @@ Photometer photometer(blueLEDControl, greenLEDControl, readLightConverter);
 void setupPhotometer(){
   mcp.begin();
   mcp.pinMode(BLUELEDPIN, OUTPUT);
-  mcp.digitalWrite(BLUELEDPIN, HIGH);
+  mcp.digitalWrite(BLUELEDPIN, LOW);
   mcp.pinMode(GREENLEDPIN, OUTPUT);
-  mcp.digitalWrite(GREENLEDPIN, HIGH);
+  mcp.digitalWrite(GREENLEDPIN, LOW);
   
   pinMode(DETECTORPIN, INPUT);
 }
@@ -253,14 +253,8 @@ void sendTemperatureHandler(volatile char* buffer, volatile int len){
 
 void sendConductivityString(volatile char* buffer, volatile int len){
   char command[48];
-  strncpy(command, (char*)buffer+1, 48);
   char response[48];
-  
-  // Remove \r or n at the end of the command for I2C mode
-  int com_length = strlen(command);
-  if(com_length > 2){
-    command[com_length - 2] = '\0';
-  }
+  strncpy(command, (char*)buffer+1, 48);
   
   byte code = condProbe.sendCommand(command, response, 48);
   char* errorResponse = NULL;
