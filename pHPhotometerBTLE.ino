@@ -1,9 +1,7 @@
-// pH Photometer
-
 #include "Photometer.h"
 
-#include <SPI.h>
 #include <Wire.h>
+#include <SPI.h>
 #include "utilities.h"
 #include <RFduinoBLE.h>
 #include "BTLE.h"
@@ -18,8 +16,11 @@
 #define BLUELEDPIN 7
 #define GREENLEDPIN 0
 #define DETECTORPIN 6
+#define LATCHPIN 3
+#define IDLETIME 600000      // This indicages 600 secs * 1000 ms for an idle time reset
 
 #define DEBUG
+unsigned long latchtime;
 
 // I2C Wire Setup
 #define SCLPIN 3
@@ -39,10 +40,15 @@ void greenLEDControl(int level){
 int readLightConverter(){
   return analogRead(DETECTORPIN);
 }
+void latchControl(int level){
+  mcp.digitalWrite(LATCHPIN, level);
+}
 Photometer photometer(blueLEDControl, greenLEDControl, readLightConverter);
 
 void setupPhotometer(){
   mcp.begin();
+  mcp.pinMode(LATCHPIN, OUTPUT);
+  mcp.digitalWrite(LATCHPIN, HIGH);
   mcp.pinMode(BLUELEDPIN, OUTPUT);
   mcp.digitalWrite(BLUELEDPIN, LOW);
   mcp.pinMode(GREENLEDPIN, OUTPUT);
@@ -251,6 +257,7 @@ void sendTemperatureHandler(volatile char* buffer, volatile int len){
   sendBuffer[length++] = '\n';
   
   sendBTLEString(sendBuffer, length);
+  latchtime = millis();    // Reset the base latchtime for the IDLETIME timeout count, since activity has occurred  
 }
 
 void sendConductivityString(volatile char* buffer, volatile int len){
@@ -276,6 +283,7 @@ void sendConductivityString(volatile char* buffer, volatile int len){
   } else {
     sendBTLEString(response, strlen(response));
   }
+  latchtime = millis();    // Reset the base latchtime for the IDLETIME timeout count, since activity has occurred
 }
 
 void setupBTLEHandlers(){
@@ -305,14 +313,24 @@ void setup(){
   Serial.print(F("BTLE Handlers Setup..."));
   setupBTLEHandlers();
   Serial.println(F("OK"));
+  
+  latchtime = millis();      // We'll keep track of idle time using millis(), and turn the system off if we exceed IDLETIME seconds
 }
 
 void loop(){
+  unsigned long temptime;
+  
   if(sendBlankPending){
     sendBlank();
+    latchtime = millis();    // Reset the base latchtime for the IDLETIME timeout count, since activity has occurred
   }
   
   if(sendDataPending){
     sendData();
+    latchtime = millis();    // Reset the base latchtime for the IDLETIME timeout count, since activity has occurred    
   }
+  
+  temptime = millis();
+  if ((temptime - latchtime)>IDLETIME)      // If we've exceeded the max idle time,
+        mcp.digitalWrite(LATCHPIN, LOW);    // we'll reset the latch pin. This will remove power from the system in the final wired version.
 }
