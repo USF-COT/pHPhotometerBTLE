@@ -39,26 +39,10 @@ void RFduinoBLE_onReceive(char *buffer, int len)
   if(rxBuffer[rxLength - 1] == '\n' || rxBuffer[rxLength - 1] == 'n'){
     rxBuffer[rxLength - 1] = '\0';
     Serial.print(F("Received: ")); Serial.println((char*) rxBuffer);
-    
-    // Remove any numeric leader before command due to iOS RF String Sender
-    int commandStart = 0;
-    while(rxBuffer[commandStart] >= '0' || rxBuffer[commandStart] <= '9' || rxBuffer[commandStart] == ' ' || commandStart == rxLength){
-      commandStart++;
-    }
-    
-    if(commandStart == rxLength){
-      Serial.println(F("Only numeric leader found.  Command will not be processed."));
-      return;
-    }
-    
-    if(commandStart > 0){
-      Serial.print(F("Removed leader.  Processing command: ")); Serial.println((char*)rxBuffer + commandStart);
-    }
-    
     HandlerItem* possibleHandler = HandlerHead;
     while(possibleHandler != NULL){
-      if(possibleHandler->isPrefix(rxBuffer[commandStart])){
-        possibleHandler->runHandler(rxBuffer + commandStart, rxLength - commandStart);
+      if(possibleHandler->isPrefix(rxBuffer[0])){
+        possibleHandler->runHandler(rxBuffer, rxLength);
         break;
       }
       possibleHandler = possibleHandler->getNext();
